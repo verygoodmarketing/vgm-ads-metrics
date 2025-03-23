@@ -3,7 +3,7 @@
 import type React from "react"
 import { createContext, useContext, useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { getSupabaseClient, isSupabaseAvailable, type User, type UserRole } from "@/lib/supabase-client"
+import { getSupabaseClient, isSupabaseAvailable, type User, type UserRole } from "@/lib/supabase"
 import { useToast } from "@/components/ui/use-toast"
 
 type AuthContextType = {
@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const available = await isSupabaseAvailable()
         if (isMounted.current) {
+          console.log("Supabase availability check result:", available)
           setSupabaseAvailable(available)
 
           if (!available && process.env.NODE_ENV === "development") {
@@ -59,6 +60,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error("Error checking Supabase availability:", error)
         if (isMounted.current) {
           setSupabaseAvailable(false)
+          
+          // In development, use mock user when Supabase is unavailable
+          if (process.env.NODE_ENV === "development") {
+            console.log("Using mock user due to Supabase availability error")
+            setUser(MOCK_USER)
+            localStorage.setItem("user", JSON.stringify(MOCK_USER))
+          }
         }
       }
     }
@@ -82,19 +90,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         timeoutId = setTimeout(() => {
           if (isMounted.current && loading) {
             console.warn("Auth check timed out, falling back to logged out state")
+            // In development, use mock user when timeout occurs
+            if (process.env.NODE_ENV === "development") {
+              console.log("Using mock user in development due to timeout")
+              setUser(MOCK_USER)
+              localStorage.setItem("user", JSON.stringify(MOCK_USER))
+            } else {
+              setUser(null)
+            }
             setLoading(false)
-            setUser(null)
           }
-        }, 5000) // 5 second timeout
+        }, 10000) // Increased timeout to 10 seconds
 
         // If Supabase is not available, use localStorage as fallback
         if (!supabaseAvailable) {
           clearTimeout(timeoutId)
-          const storedUser = localStorage.getItem("user")
-          if (storedUser) {
-            setUser(JSON.parse(storedUser))
+          // In development, always use mock user when Supabase is unavailable
+          if (process.env.NODE_ENV === "development") {
+            console.log("Using mock user in development (Supabase unavailable)")
+            setUser(MOCK_USER)
+            localStorage.setItem("user", JSON.stringify(MOCK_USER))
           } else {
-            setUser(null)
+            const storedUser = localStorage.getItem("user")
+            if (storedUser) {
+              setUser(JSON.parse(storedUser))
+            } else {
+              setUser(null)
+            }
           }
           setLoading(false)
           return
@@ -240,7 +262,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // If Supabase is not available, use mock login for development
       if (!supabaseAvailable) {
-        if (process.env.NODE_ENV === "development" && email === "admin@example.com" && password === "password") {
+        if (process.env.NODE_ENV === "development") {
+          console.log("Using mock login in development mode")
           setUser(MOCK_USER)
           localStorage.setItem("user", JSON.stringify(MOCK_USER))
           return

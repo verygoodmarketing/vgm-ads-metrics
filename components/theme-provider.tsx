@@ -4,7 +4,7 @@ import type React from "react"
 import { createContext, useContext, useEffect, useState, useRef } from "react"
 import { useToast } from "@/components/ui/use-toast"
 import type { Theme } from "@/lib/supabase-client"
-import { getSupabaseClient } from "@/lib/supabase-client"
+import { getSupabaseClient } from "@/lib/supabase"
 
 type ThemeProviderProps = {
   children: React.ReactNode

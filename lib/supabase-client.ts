@@ -1,101 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
-// Define a global type for the window object
-declare global {
-  interface Window {
-    supabaseClient?: SupabaseClient
-  }
-}
+// Global variable to store the singleton instance
+let supabaseInstance: SupabaseClient | null = null
 
-// Create a single supabase client for server-side usage
-export const createServerSupabaseClient = () => {
-  const supabaseUrl = process.env.SUPABASE_URL
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Missing Supabase environment variables")
-  }
-
-  return createClient(supabaseUrl, supabaseKey)
-}
-
-// Create a singleton client for client-side usage
-export const getSupabaseClient = (): SupabaseClient => {
-  // Server-side - create a new instance each time
-  if (typeof window === "undefined") {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Missing Supabase environment variables")
-    }
-
-    return createClient(supabaseUrl, supabaseKey)
-  }
-
-  // Client-side - use global window object to store the instance
-  if (!window.supabaseClient) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Missing Supabase environment variables")
-    }
-
-    // Create a single instance with consistent options
-    window.supabaseClient = createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false,
-        storageKey: "vgm-supabase-auth",
-      },
-    })
-
-    console.log("Created Supabase client instance and stored in window object")
-  }
-
-  return window.supabaseClient
-}
-
-// Helper function to check if Supabase is available
-export const isSupabaseAvailable = async (): Promise<boolean> => {
-  try {
-    // First check if we have the required environment variables
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    if (!supabaseUrl || !supabaseKey) {
-      console.warn("Missing Supabase environment variables")
-      return false
-    }
-
-    // Try to create a client
-    let supabase
-    try {
-      supabase = getSupabaseClient()
-    } catch (error) {
-      console.error("Failed to create Supabase client:", error)
-      return false
-    }
-
-    if (!supabase) return false
-
-    // Make a simple query to check connectivity
-    try {
-      await supabase.from("users").select("id").limit(1)
-      return true
-    } catch (error) {
-      console.error("Supabase query failed:", error)
-      return false
-    }
-  } catch (error) {
-    console.error("Supabase availability check failed:", error)
-    return false
-  }
-}
-
-// Export types
+// Types for our database tables
 export type Customer = {
   id: string
   name: string
@@ -140,3 +48,93 @@ export type User = {
   updated_at: string
 }
 
+// Create a single supabase client for server-side usage
+export const createServerSupabaseClient = () => {
+  const supabaseUrl = process.env.SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Missing Supabase environment variables")
+  }
+
+  return createClient(supabaseUrl, supabaseKey)
+}
+
+// Get or create a Supabase client instance
+export const getSupabaseClient = (): SupabaseClient => {
+  if (typeof window === "undefined") {
+    // Server-side - create a new instance each time
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("Missing Supabase environment variables")
+    }
+
+    return createClient(supabaseUrl, supabaseKey)
+  }
+
+  // Client-side - use singleton pattern
+  if (!supabaseInstance) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("Missing Supabase environment variables")
+    }
+
+    // Create a single instance with consistent options
+    supabaseInstance = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        storageKey: "vgm-supabase-auth",
+      },
+    })
+
+    console.log("Created Supabase singleton instance")
+  }
+
+  return supabaseInstance
+}
+
+// For backward compatibility with existing code
+export const createClientSupabaseClient = getSupabaseClient
+
+// Helper function to check if Supabase is available
+export const isSupabaseAvailable = async (): Promise<boolean> => {
+  try {
+    // First check if we have the required environment variables
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.warn("Missing Supabase environment variables")
+      return false
+    }
+
+    // Try to create a client
+    let supabase
+    try {
+      supabase = getSupabaseClient()
+    } catch (error) {
+      console.error("Failed to create Supabase client:", error)
+      return false
+    }
+
+    if (!supabase) return false
+
+    // Make a simple query to check connectivity
+    try {
+      await supabase.from("users").select("id").limit(1)
+      return true
+    } catch (error) {
+      console.error("Supabase query failed:", error)
+      return false
+    }
+  } catch (error) {
+    console.error("Supabase availability check failed:", error)
+    return false
+  }
+}
