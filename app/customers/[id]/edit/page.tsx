@@ -12,76 +12,89 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-
-// Mock customer data
-const mockCustomers = [
-  {
-    id: "1",
-    name: "Acme Inc.",
-    contactName: "John Doe",
-    email: "john@acme.com",
-    phone: "555-123-4567",
-    status: "active",
-    dateAdded: "2023-01-15",
-  },
-  {
-    id: "2",
-    name: "Globex Corporation",
-    contactName: "Jane Smith",
-    email: "jane@globex.com",
-    phone: "555-987-6543",
-    status: "active",
-    dateAdded: "2023-02-20",
-  },
-  {
-    id: "3",
-    name: "Initech",
-    contactName: "Michael Bolton",
-    email: "michael@initech.com",
-    phone: "555-456-7890",
-    status: "inactive",
-    dateAdded: "2023-03-10",
-  },
-  {
-    id: "4",
-    name: "Umbrella Corp",
-    contactName: "Alice Johnson",
-    email: "alice@umbrella.com",
-    phone: "555-789-0123",
-    status: "active",
-    dateAdded: "2023-04-05",
-  },
-]
+import { createClientSupabaseClient, type Customer } from "@/lib/supabase"
+import { useAuth } from "@/components/auth-provider"
 
 export default function EditCustomerPage() {
   const params = useParams()
   const router = useRouter()
   const { toast } = useToast()
+  const { user } = useAuth()
   const customerId = params.id as string
+  const supabase = createClientSupabaseClient()
 
+  const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
-    contactName: "",
+    contact_name: "",
     email: "",
     phone: "",
-    status: "",
+    status: "active" as "active" | "inactive",
   })
 
+  // Fetch customer data from Supabase
   useEffect(() => {
-    const customer = mockCustomers.find((c) => c.id === customerId)
-    if (customer) {
-      setFormData({
-        name: customer.name,
-        contactName: customer.contactName,
-        email: customer.email,
-        phone: customer.phone,
-        status: customer.status,
-      })
-    } else {
-      router.push("/customers")
+    const fetchCustomer = async () => {
+      if (!customerId) {
+        router.push("/customers")
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const { data, error } = await supabase
+          .from("customers")
+          .select("*")
+          .eq("id", customerId)
+          .single()
+
+        if (error) {
+          console.error("Error fetching customer:", error)
+          toast({
+            title: "Error",
+            description: "Failed to load customer data. Redirecting back to customers list.",
+            variant: "destructive",
+          })
+          router.push("/customers")
+          return
+        }
+
+        if (!data) {
+          toast({
+            title: "Customer not found",
+            description: "The requested customer could not be found.",
+            variant: "destructive",
+          })
+          router.push("/customers")
+          return
+        }
+
+        // Set form data from customer data
+        setFormData({
+          name: data.name,
+          contact_name: data.contact_name,
+          email: data.email,
+          phone: data.phone || "",
+          status: data.status,
+        })
+      } catch (error) {
+        console.error("Error in customer fetch:", error)
+        toast({
+          title: "Error",
+          description: "An unexpected error occurred. Please try again.",
+          variant: "destructive",
+        })
+        router.push("/customers")
+      } finally {
+        setIsLoading(false)
+      }
     }
-  }, [customerId, router])
+
+    if (user) {
+      fetchCustomer()
+    }
+  }, [customerId, router, supabase, toast, user])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -89,22 +102,58 @@ export default function EditCustomerPage() {
   }
 
   const handleStatusChange = (value: string) => {
-    setFormData((prev) => ({ ...prev, status: value }))
+    setFormData((prev) => ({ ...prev, status: value as "active" | "inactive" }))
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Update customer in Supabase
+      const { error } = await supabase
+        .from("customers")
+        .update({
+          name: formData.name,
+          contact_name: formData.contact_name,
+          email: formData.email,
+          phone: formData.phone || null,
+          status: formData.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", customerId)
+
+      if (error) {
+        throw error
+      }
+
       toast({
         title: "Customer updated",
         description: `${formData.name} has been updated successfully.`,
       })
-      setIsSubmitting(false)
+      
       router.push("/customers")
-    }, 1000)
+    } catch (error: any) {
+      console.error("Error updating customer:", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update customer. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 p-8 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-lg">Loading customer data...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -131,11 +180,11 @@ export default function EditCustomerPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="contactName">Contact Person</Label>
+              <Label htmlFor="contact_name">Contact Person</Label>
               <Input
-                id="contactName"
-                name="contactName"
-                value={formData.contactName}
+                id="contact_name"
+                name="contact_name"
+                value={formData.contact_name}
                 onChange={handleChange}
                 required
               />
