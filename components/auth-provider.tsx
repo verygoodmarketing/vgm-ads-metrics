@@ -391,8 +391,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       if (supabaseAvailable) {
         const supabase = getSupabaseClient()
+        
+        // Clear all Supabase-related storage
+        localStorage.removeItem("vgm-supabase-auth")
+        localStorage.removeItem("sb-rjwjufncbrpxtjudmxwr-auth-token")
+        
+        // Then sign out
         await supabase.auth.signOut()
       }
+      
+      // Clear your app's user data
       setUser(null)
       localStorage.removeItem("user")
       router.push("/login")
