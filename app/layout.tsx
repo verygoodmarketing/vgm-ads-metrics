@@ -11,7 +11,11 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata = {
   title: "VGM Ads Metrics",
   description: "Track and analyze Google Ads metrics for multiple customers",
-    generator: 'v0.dev'
+  generator: 'v0.dev',
+  icons: {
+    icon: '/vgm-icon.png',
+    apple: '/vgm-icon.png',
+  }
 }
 
 export default function RootLayout({
