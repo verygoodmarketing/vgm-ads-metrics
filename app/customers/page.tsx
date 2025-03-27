@@ -48,36 +48,82 @@ export default function CustomersPage() {
       setIsError(false)
 
       try {
-        // First, ensure the session is valid by refreshing it
-        try {
-          await supabase.auth.refreshSession();
-        } catch (refreshError) {
-          console.warn("Session refresh failed, continuing with current session:", refreshError);
+        // Check if we're using mock user in development
+        if (process.env.NODE_ENV === "development" && user.id === "mock-user-id") {
+          // For mock users, use mock data
+          const mockCustomers: Customer[] = [
+            {
+              id: "mock-customer-1",
+              name: "Mock Customer 1",
+              contact_name: "John Doe",
+              email: "john@example.com",
+              phone: "555-123-4567",
+              status: "active",
+              date_added: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              id: "mock-customer-2",
+              name: "Mock Customer 2",
+              contact_name: "Jane Smith",
+              email: "jane@example.com",
+              phone: "555-987-6543",
+              status: "active",
+              date_added: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ];
+          
+          console.log("Using mock customers for mock user");
+          setCustomers(mockCustomers);
+          setIsLoading(false);
+          return;
         }
 
-        const { data, error } = await supabase.from("customers").select("*").order("name")
-
-        if (error) {
-          // If we get an unauthorized error, try to refresh the session again
-          if (error.code === "PGRST301" || error.message?.includes("JWT")) {
-            console.log("Authentication error, attempting to refresh session");
-            await supabase.auth.refreshSession();
-            
-            // Try the query again after refresh
-            const retryResult = await supabase.from("customers").select("*").order("name");
-            
-            if (retryResult.error) {
-              throw retryResult.error;
+        console.log("Fetching real customers for user:", user.id);
+        
+        // For real users, fetch from Supabase
+        let retryCount = 0;
+        const maxRetries = 2;
+        
+        while (retryCount <= maxRetries) {
+          try {
+            // Try to refresh the session before fetching customers
+            if (retryCount > 0) {
+              console.log("Attempting to refresh session before retry");
+              await supabase.auth.refreshSession();
             }
             
-            setCustomers(retryResult.data as Customer[]);
+            const { data, error } = await supabase.from("customers").select("*").order("name");
+            
+            if (error) {
+              // If we get an unauthorized error, try to refresh the session
+              if (error.code === "PGRST301" || error.message?.includes("JWT")) {
+                if (retryCount < maxRetries) {
+                  console.log(`Authentication error, retry attempt ${retryCount + 1}`);
+                  retryCount++;
+                  continue;
+                } else {
+                  throw error;
+                }
+              } else {
+                throw error;
+              }
+            }
+            
+            console.log(`Successfully fetched ${data?.length || 0} customers`);
+            setCustomers(data as Customer[]);
             return;
+          } catch (retryError) {
+            if (retryCount < maxRetries) {
+              retryCount++;
+            } else {
+              throw retryError;
+            }
           }
-          
-          throw error;
         }
-
-        setCustomers(data as Customer[])
       } catch (error) {
         console.error("Error fetching customers:", error)
         setIsError(true)

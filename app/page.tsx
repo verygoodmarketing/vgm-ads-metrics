@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
-import { Loader2 } from "lucide-react"
+import { Loader2, AlertCircle } from "lucide-react"
 
 export default function HomePage() {
   const router = useRouter()
-  const { user, loading } = useAuth()
+  const { user, loading, supabaseAvailable } = useAuth()
   const [redirectionAttempts, setRedirectionAttempts] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
@@ -16,6 +17,12 @@ export default function HomePage() {
     // Only attempt redirection if auth state is determined
     if (!loading) {
       try {
+        if (!supabaseAvailable) {
+          // Don't redirect if database is unavailable
+          setError("Database cannot be reached. Please try again later.")
+          return
+        }
+        
         if (user) {
           router.push("/dashboard")
         } else {
@@ -28,7 +35,7 @@ export default function HomePage() {
         setError("Failed to redirect. Please try navigating manually.")
       }
     }
-  }, [user, loading, router])
+  }, [user, loading, router, supabaseAvailable])
 
   // If we've tried redirecting multiple times and still on this page, show manual options
   const showManualOptions = redirectionAttempts > 2
@@ -40,6 +47,19 @@ export default function HomePage() {
           <>
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
             <p className="text-lg">Loading authentication state...</p>
+          </>
+        ) : !supabaseAvailable ? (
+          <>
+            <AlertCircle className="h-8 w-8 mx-auto mb-4 text-red-500" />
+            <p className="text-lg text-red-500 mb-4">Database cannot be reached. Please try again later.</p>
+            <Button onClick={() => window.location.reload()} className="mb-4">
+              Retry Connection
+            </Button>
+            <div>
+              <Link href="/debug" className="text-sm text-blue-500 hover:underline">
+                Run Connection Diagnostics
+              </Link>
+            </div>
           </>
         ) : error ? (
           <>
@@ -67,4 +87,3 @@ export default function HomePage() {
     </div>
   )
 }
-

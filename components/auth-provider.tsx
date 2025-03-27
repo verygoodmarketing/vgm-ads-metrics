@@ -45,28 +45,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const checkSupabaseAvailability = async () => {
       try {
+        // Clear any existing mock user data to ensure a fresh check
+        if (process.env.NODE_ENV === "development") {
+          const storedUser = localStorage.getItem("user");
+          if (storedUser && JSON.parse(storedUser).id === "mock-user-id") {
+            localStorage.removeItem("user");
+          }
+        }
+        
+        // Clear any existing Supabase auth data to ensure a fresh check
+        localStorage.removeItem("sb-rjwjufncbrpxtjudmxwr-auth-token");
+        localStorage.removeItem("vgm-supabase-auth");
+        
+        console.log("Checking Supabase availability...");
         const available = await isSupabaseAvailable()
         if (isMounted.current) {
           console.log("Supabase availability check result:", available)
           setSupabaseAvailable(available)
-
-          if (!available && process.env.NODE_ENV === "development") {
-            console.warn("Supabase is not available. Using mock data for development.")
-            setUser(MOCK_USER)
-            localStorage.setItem("user", JSON.stringify(MOCK_USER))
+          
+          // No longer using mock user when Supabase is unavailable
+          if (!available) {
+            console.warn("Supabase is not available. Database cannot be reached.")
+            setUser(null)
           }
         }
       } catch (error) {
         console.error("Error checking Supabase availability:", error)
         if (isMounted.current) {
           setSupabaseAvailable(false)
-          
-          // In development, use mock user when Supabase is unavailable
-          if (process.env.NODE_ENV === "development") {
-            console.log("Using mock user due to Supabase availability error")
-            setUser(MOCK_USER)
-            localStorage.setItem("user", JSON.stringify(MOCK_USER))
-          }
+          setUser(null)
         }
       }
     }
@@ -90,34 +97,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         timeoutId = setTimeout(() => {
           if (isMounted.current && loading) {
             console.warn("Auth check timed out, falling back to logged out state")
-            // In development, use mock user when timeout occurs
-            if (process.env.NODE_ENV === "development") {
-              console.log("Using mock user in development due to timeout")
-              setUser(MOCK_USER)
-              localStorage.setItem("user", JSON.stringify(MOCK_USER))
-            } else {
-              setUser(null)
-            }
+            setUser(null)
             setLoading(false)
           }
-        }, 10000) // Increased timeout to 10 seconds
+        }, 15000) // Increased timeout to 15 seconds
 
-        // If Supabase is not available, use localStorage as fallback
+        // If Supabase is not available, don't use mock data
         if (!supabaseAvailable) {
           clearTimeout(timeoutId)
-          // In development, always use mock user when Supabase is unavailable
-          if (process.env.NODE_ENV === "development") {
-            console.log("Using mock user in development (Supabase unavailable)")
-            setUser(MOCK_USER)
-            localStorage.setItem("user", JSON.stringify(MOCK_USER))
-          } else {
-            const storedUser = localStorage.getItem("user")
-            if (storedUser) {
-              setUser(JSON.parse(storedUser))
-            } else {
-              setUser(null)
-            }
-          }
+          // Don't use mock user, just set user to null
+          setUser(null)
           setLoading(false)
           return
         }
@@ -125,81 +114,101 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Get the Supabase client
         const supabase = getSupabaseClient()
 
-        // First try to refresh the session
+        // Check if we're using mock user in development - remove this section
+        const storedUser = localStorage.getItem("user")
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          // Remove mock user check
+          if (parsedUser.id === "mock-user-id") {
+            // Remove mock user from storage
+            localStorage.removeItem("user");
+          }
+        }
+
+        // Create an AbortController for the session fetch
+        const controller = new AbortController();
+        const fetchTimeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
         try {
-          await supabase.auth.refreshSession();
-        } catch (refreshError) {
-          console.warn("Session refresh failed:", refreshError);
-          // Continue with the existing session if refresh fails
-        }
+          // Get session with timeout
+          const { data, error } = await supabase.auth.getSession();
+          clearTimeout(fetchTimeoutId);
+          
+          if (error) {
+            console.error("Error getting session:", error)
+            setUser(null)
+            setLoading(false)
+            clearTimeout(timeoutId)
+            return
+          }
 
-        // Get session
-        const { data, error } = await supabase.auth.getSession()
+          const session = data?.session
 
-        if (error) {
-          console.error("Error getting session:", error)
-          setUser(null)
-          setLoading(false)
-          return
-        }
+          if (session) {
+            try {
+              // Fetch user profile from our users table with timeout
+              const userController = new AbortController();
+              const userTimeoutId = setTimeout(() => userController.abort(), 10000);
+              
+              const { data: userData, error: userError } = await supabase
+                .from("users")
+                .select("*")
+                .eq("id", session.user.id)
+                .single()
+                .abortSignal(userController.signal);
+                
+              clearTimeout(userTimeoutId);
 
-        const session = data?.session
+              if (userError) {
+                console.error("Error fetching user data:", userError)
+                setUser(null)
+              } else if (userData) {
+                setUser(userData as User)
+                localStorage.setItem("user", JSON.stringify(userData))
 
-        if (session) {
-          try {
-            // Fetch user profile from our users table
-            const { data: userData, error: userError } = await supabase
-              .from("users")
-              .select("*")
-              .eq("id", session.user.id)
-              .single()
-
-            if (userError) {
-              console.error("Error fetching user data:", userError)
-              const storedUser = localStorage.getItem("user")
-              if (storedUser) {
-                setUser(JSON.parse(storedUser))
+                // If user has a theme preference, apply it
+                if (userData.theme_preference) {
+                  localStorage.setItem("vgm-ui-theme", userData.theme_preference)
+                }
               } else {
+                console.error("No user data found")
                 setUser(null)
               }
-            } else if (userData) {
-              setUser(userData as User)
-              localStorage.setItem("user", JSON.stringify(userData))
-
-              // If user has a theme preference, apply it
-              if (userData.theme_preference) {
-                localStorage.setItem("vgm-ui-theme", userData.theme_preference)
+            } catch (error: any) {
+              console.error("Error in user data fetch:", error)
+              if (error.name === 'AbortError') {
+                console.error("User data fetch timed out")
+              }
+              setUser(null)
+            }
+          } else {
+            // No session, check localStorage for user data
+            if (storedUser) {
+              const parsedUser = JSON.parse(storedUser);
+              // Remove mock user if found
+              if (parsedUser.id === "mock-user-id") {
+                localStorage.removeItem("user");
+                setUser(null);
+              } else {
+                // Otherwise, clear the stored user as the session is invalid
+                localStorage.removeItem("user");
+                setUser(null);
               }
             } else {
-              console.error("No user data found")
-              setUser(null)
-            }
-          } catch (error) {
-            console.error("Error in user data fetch:", error)
-            const storedUser = localStorage.getItem("user")
-            if (storedUser) {
-              setUser(JSON.parse(storedUser))
-            } else {
               setUser(null)
             }
           }
-        } else {
-          // No session, check localStorage for user data
-          const storedUser = localStorage.getItem("user")
-          if (storedUser) {
-            setUser(JSON.parse(storedUser))
-          } else {
-            setUser(null)
+        } catch (error: any) {
+          clearTimeout(fetchTimeoutId);
+          console.error("Auth check failed:", error)
+          if (error.name === 'AbortError') {
+            console.error("Session fetch timed out")
           }
+          setUser(null)
         }
       } catch (error) {
         console.error("Auth check failed:", error)
-        const storedUser = localStorage.getItem("user")
-        if (storedUser) {
-          setUser(JSON.parse(storedUser))
-        } else {
-          setUser(null)
-        }
+        setUser(null)
       } finally {
         clearTimeout(timeoutId)
         if (isMounted.current) {
@@ -215,7 +224,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Set up a periodic check to refresh the session
     const sessionCheckInterval = setInterval(() => {
       if (isMounted.current && user) {
-        console.log("Performing periodic session check");
+        // Skip periodic checks for mock users
+        if (user.id === "mock-user-id") {
+          return;
+        }
+        
+        if (process.env.NODE_ENV === "development") {
+          console.log("Performing periodic session check");
+        }
         checkAuth();
       }
     }, 15 * 60 * 1000); // Check every 15 minutes
@@ -277,76 +293,100 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-      // If Supabase is not available, use mock login for development
+      setLoading(true)
+      
+      // If Supabase is not available, show error
       if (!supabaseAvailable) {
-        if (process.env.NODE_ENV === "development") {
-          console.log("Using mock login in development mode")
-          setUser(MOCK_USER)
-          localStorage.setItem("user", JSON.stringify(MOCK_USER))
-          return
-        } else {
-          throw new Error("Authentication service is currently unavailable")
-        }
+        throw new Error("Authentication service is currently unavailable")
       }
 
       const supabase = getSupabaseClient()
 
-      // Attempt to sign in
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        throw error
-      }
-
-      if (!data.session) {
-        throw new Error("No session returned from login")
-      }
+      // Create an AbortController for the login request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
       try {
-        // Fetch user data
-        const { data: userData, error: userError } = await supabase
-          .from("users")
-          .select("*")
-          .eq("id", data.user.id)
-          .single()
+        // Attempt to sign in with timeout
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+          options: {
+            abortSignal: controller.signal
+          }
+        });
+        
+        clearTimeout(timeoutId);
 
-        if (userError) {
-          console.error("Error fetching user data:", userError)
-          throw new Error("Failed to fetch user data")
+        if (error) {
+          throw error
         }
 
-        if (!userData) {
-          throw new Error("No user data found")
+        if (!data.session) {
+          throw new Error("No session returned from login")
         }
 
-        // Set user data
-        setUser(userData as User)
-        localStorage.setItem("user", JSON.stringify(userData))
+        try {
+          // Fetch user profile from our users table with timeout
+          const userController = new AbortController();
+          const userTimeoutId = setTimeout(() => userController.abort(), 10000);
+          
+          const { data: userData, error: userError } = await supabase
+            .from("users")
+            .select("*")
+            .eq("id", data.user.id)
+            .single()
+            .abortSignal(userController.signal);
+            
+          clearTimeout(userTimeoutId);
 
-        // If user has a theme preference, apply it
-        if (userData.theme_preference) {
-          localStorage.setItem("vgm-ui-theme", userData.theme_preference)
+          if (userError) {
+            console.error("Error fetching user data:", userError)
+            throw new Error("Failed to fetch user data")
+          }
+
+          if (!userData) {
+            throw new Error("No user data found")
+          }
+
+          // Set user data
+          setUser(userData as User)
+          localStorage.setItem("user", JSON.stringify(userData))
+
+          // If user has a theme preference, apply it
+          if (userData.theme_preference) {
+            localStorage.setItem("vgm-ui-theme", userData.theme_preference)
+          }
+        } catch (error: any) {
+          console.error("Error fetching user data after login:", error)
+          if (error.name === 'AbortError') {
+            throw new Error("User data fetch timed out. Please try again.")
+          }
+          
+          // Fallback to basic user info
+          const basicUser: User = {
+            id: data.user.id,
+            email: data.user.email || "",
+            name: data.user.user_metadata?.name || "User",
+            role: "user", // Default role
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }
+          setUser(basicUser)
+          localStorage.setItem("user", JSON.stringify(basicUser))
         }
-      } catch (error) {
-        console.error("Error fetching user data after login:", error)
-        // Fallback to basic user info
-        const basicUser: User = {
-          id: data.user.id,
-          email: data.user.email || "",
-          name: data.user.user_metadata?.name || "User",
-          role: "user", // Default role
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error("Login request timed out. Please try again.")
         }
-        setUser(basicUser)
-        localStorage.setItem("user", JSON.stringify(basicUser))
+        throw error;
       }
     } catch (error: any) {
       console.error("Login failed:", error.message)
       throw error
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -406,8 +446,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      // Clear your app's user data first (this ensures logout works even if Supabase fails)
+      setUser(null)
+      localStorage.removeItem("user")
+      
       if (supabaseAvailable) {
         const supabase = getSupabaseClient()
+        
+        try {
+          // Try to refresh the session first to ensure we can logout properly
+          await supabase.auth.refreshSession()
+        } catch (refreshError) {
+          console.warn("Session refresh before logout failed:", refreshError)
+          // Continue with logout anyway
+        }
         
         // Clear all Supabase-related storage
         localStorage.removeItem("vgm-supabase-auth")
@@ -417,14 +469,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut()
       }
       
-      // Clear your app's user data
-      setUser(null)
-      localStorage.removeItem("user")
       router.push("/login")
     } catch (error) {
       console.error("Logout failed:", error)
-      setUser(null)
-      localStorage.removeItem("user")
+      // Already cleared user data above, just redirect
       router.push("/login")
     }
   }

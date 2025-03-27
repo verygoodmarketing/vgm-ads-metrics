@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useAuth } from "@/components/auth-provider"
 import { useToast } from "@/components/ui/use-toast"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, Loader2 } from "lucide-react"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -67,27 +67,12 @@ export default function LoginPage() {
           <CardDescription>Enter your credentials to access your account</CardDescription>
         </CardHeader>
         <CardContent>
-          {process.env.NODE_ENV === "development" && !supabaseAvailable && (
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md mb-4">
-              <p className="text-sm font-medium text-blue-800 dark:text-blue-300">
-                Development Mode Login Credentials:
-              </p>
-              <p className="text-xs mt-1">
-                Email: <span className="font-mono">admin@example.com</span>
-                <br />
-                Password: <span className="font-mono">password</span>
-              </p>
-            </div>
-          )}
-
           {!supabaseAvailable && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Connection Issue</AlertTitle>
               <AlertDescription>
-                {process.env.NODE_ENV === "development"
-                  ? "Database connection is unavailable. In development mode, use admin@example.com / password to log in."
-                  : "Authentication service is currently unavailable. Please try again later."}
+                Database cannot be reached. Please try again later.
               </AlertDescription>
             </Alert>
           )}
@@ -112,6 +97,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={!supabaseAvailable || isLoading}
               />
             </div>
 
@@ -126,18 +112,42 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={!supabaseAvailable || isLoading}
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Logging in..." : "Login"}
+            <Button 
+              type="submit" 
+              className="w-full" 
+              disabled={isLoading || !supabaseAvailable}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Logging in...
+                </>
+              ) : "Login"}
             </Button>
 
-            {process.env.NODE_ENV === "development" && !supabaseAvailable && (
-              <p className="text-xs text-muted-foreground mt-2">
-                In development mode, use <strong>admin@example.com</strong> / <strong>password</strong> to log in.
-              </p>
+            {!supabaseAvailable && (
+              <Button 
+                type="button" 
+                variant="outline" 
+                className="w-full mt-2" 
+                onClick={() => window.location.reload()}
+              >
+                Retry Connection
+              </Button>
             )}
+            
+            <div className="text-center mt-2">
+              <Link 
+                href="/debug" 
+                className="text-xs text-muted-foreground hover:underline"
+              >
+                Connection Issues? Run Diagnostics
+              </Link>
+            </div>
           </form>
         </CardContent>
         <CardFooter className="flex justify-center">
@@ -152,4 +162,3 @@ export default function LoginPage() {
     </div>
   )
 }
-
