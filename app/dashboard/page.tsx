@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { useCache } from "@/lib/cache-context"
 
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -160,16 +161,33 @@ function DashboardContent() {
     return null
   }
 
-  // Fetch customers on component mount
+  // Import the cache context
+  const { customers: cachedCustomers, setCustomers: setCachedCustomers, metrics: cachedMetrics, setMetricsForCustomer } = useCache()
+
+  // Fetch customers on component mount, using cache if available
   useEffect(() => {
     const fetchCustomers = async () => {
+      // If we have cached customers, use them
+      if (cachedCustomers) {
+        setCustomers(cachedCustomers)
+        
+        // Set default selected customer if none is selected
+        if (!selectedCustomer && cachedCustomers.length > 0) {
+          setSelectedCustomer(cachedCustomers[0].id)
+        }
+        return
+      }
+
       try {
         const response = await fetch("/api/customers")
         if (!response.ok) {
           throw new Error("Failed to fetch customers")
         }
         const data = await response.json()
+        
+        // Update both local state and cache
         setCustomers(data)
+        setCachedCustomers(data)
 
         // Set default selected customer if none is selected
         if (!selectedCustomer && data.length > 0) {
@@ -186,12 +204,20 @@ function DashboardContent() {
     }
 
     fetchCustomers()
-  }, [toast, selectedCustomer])
+    // Only run this effect once on component mount
+  }, [])
 
-  // Fetch metrics when selected customer changes
+  // Fetch metrics when selected customer changes, using cache if available
   useEffect(() => {
     const fetchMetrics = async () => {
       if (!selectedCustomer) return
+
+      // Check if we have cached metrics for this customer
+      if (cachedMetrics[selectedCustomer]) {
+        setMetricsData(cachedMetrics[selectedCustomer])
+        setIsLoading(false)
+        return
+      }
 
       setIsLoading(true)
       try {
@@ -200,7 +226,10 @@ function DashboardContent() {
           throw new Error("Failed to fetch metrics")
         }
         const data = await response.json()
+        
+        // Update both local state and cache
         setMetricsData(data)
+        setMetricsForCustomer(selectedCustomer, data)
       } catch (error) {
         console.error("Error fetching metrics:", error)
         toast({
@@ -214,7 +243,7 @@ function DashboardContent() {
     }
 
     fetchMetrics()
-  }, [selectedCustomer, toast])
+  }, [selectedCustomer, toast, cachedMetrics, setMetricsForCustomer])
 
   // Get unique years and months from data for filtering
   useEffect(() => {
@@ -402,7 +431,13 @@ function DashboardContent() {
 
         const updatedMetric = await response.json()
 
-        setMetricsData((prev) => prev.map((metric) => (metric.id === currentMetric.id ? updatedMetric : metric)))
+        const updatedMetrics = metricsData.map((metric) => 
+          metric.id === currentMetric.id ? updatedMetric : metric
+        )
+        setMetricsData(updatedMetrics)
+        
+        // Update cache
+        updateMetricsCache(updatedMetrics)
 
         toast({
           title: "Metric updated",
@@ -423,7 +458,11 @@ function DashboardContent() {
         }
 
         const newMetric = await response.json()
-        setMetricsData((prev) => [...prev, newMetric])
+        const updatedMetrics = [...metricsData, newMetric]
+        setMetricsData(updatedMetrics)
+        
+        // Update cache
+        updateMetricsCache(updatedMetrics)
 
         toast({
           title: "Metric added",
@@ -454,7 +493,11 @@ function DashboardContent() {
           throw new Error("Failed to delete metric")
         }
 
-        setMetricsData((prev) => prev.filter((metric) => metric.id !== metricToDelete))
+        const updatedMetrics = metricsData.filter((metric) => metric.id !== metricToDelete)
+        setMetricsData(updatedMetrics)
+        
+        // Update cache
+        updateMetricsCache(updatedMetrics)
 
         toast({
           title: "Metric deleted",
@@ -473,7 +516,12 @@ function DashboardContent() {
     }
   }
 
-  // Handle year checkbox change
+  // Update cache when metrics are added, edited, or deleted
+  const updateMetricsCache = (updatedMetrics: Metric[]) => {
+    if (selectedCustomer) {
+      setMetricsForCustomer(selectedCustomer, updatedMetrics)
+    }
+  }
   const handleYearCheckboxChange = (year: string) => {
     setSelectedYears((prev) => {
       if (prev.includes(year)) {

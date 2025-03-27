@@ -3,6 +3,7 @@ import { Inter } from "next/font/google"
 import { ThemeProviderWrapper } from "@/components/theme-provider-wrapper"
 import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from "@/components/auth-provider"
+import { CacheProvider } from "@/lib/cache-context"
 
 import "./globals.css"
 
@@ -27,16 +28,14 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <AuthProvider>
-          <ThemeProviderWrapper>
-            {children}
-            <Toaster />
-          </ThemeProviderWrapper>
+          <CacheProvider>
+            <ThemeProviderWrapper>
+              {children}
+              <Toaster />
+            </ThemeProviderWrapper>
+          </CacheProvider>
         </AuthProvider>
       </body>
     </html>
   )
 }
-
-
-
-import './globals.css'

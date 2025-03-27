@@ -28,9 +28,11 @@ import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/components/auth-provider"
 import { createClientSupabaseClient, type Customer } from "@/lib/supabase"
 import { RoleGate } from "@/components/role-gate"
+import { useCache } from "@/lib/cache-context"
 
 export default function CustomersPage() {
   const { user, hasPermission } = useAuth()
+  const { customers: cachedCustomers, setCustomers: setCachedCustomers } = useCache()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [customerToDelete, setCustomerToDelete] = useState<string | null>(null)
@@ -44,47 +46,18 @@ export default function CustomersPage() {
     const fetchCustomers = async () => {
       if (!user) return
 
+      // If we have cached customers, use them
+      if (cachedCustomers) {
+        setCustomers(cachedCustomers)
+        setIsLoading(false)
+        return
+      }
+
       setIsLoading(true)
       setIsError(false)
 
       try {
-        // Check if we're using mock user in development
-        if (process.env.NODE_ENV === "development" && user.id === "mock-user-id") {
-          // For mock users, use mock data
-          const mockCustomers: Customer[] = [
-            {
-              id: "mock-customer-1",
-              name: "Mock Customer 1",
-              contact_name: "John Doe",
-              email: "john@example.com",
-              phone: "555-123-4567",
-              status: "active",
-              date_added: new Date().toISOString(),
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              id: "mock-customer-2",
-              name: "Mock Customer 2",
-              contact_name: "Jane Smith",
-              email: "jane@example.com",
-              phone: "555-987-6543",
-              status: "active",
-              date_added: new Date().toISOString(),
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ];
-          
-          console.log("Using mock customers for mock user");
-          setCustomers(mockCustomers);
-          setIsLoading(false);
-          return;
-        }
-
-        console.log("Fetching real customers for user:", user.id);
-        
-        // For real users, fetch from Supabase
+        // Fetch from Supabase
         let retryCount = 0;
         const maxRetries = 2;
         
@@ -115,6 +88,8 @@ export default function CustomersPage() {
             
             console.log(`Successfully fetched ${data?.length || 0} customers`);
             setCustomers(data as Customer[]);
+            // Update cache
+            setCachedCustomers(data as Customer[]);
             return;
           } catch (retryError) {
             if (retryCount < maxRetries) {
@@ -138,7 +113,7 @@ export default function CustomersPage() {
     }
 
     fetchCustomers()
-  }, [user, supabase, toast])
+  }, [user, supabase, toast, cachedCustomers, setCachedCustomers])
 
   const filteredCustomers = customers.filter(
     (customer) =>
@@ -155,7 +130,12 @@ export default function CustomersPage() {
 
       if (error) throw error
 
-      setCustomers(customers.filter((customer) => customer.id !== customerToDelete))
+      const updatedCustomers = customers.filter((customer) => customer.id !== customerToDelete)
+      setCustomers(updatedCustomers)
+      
+      // Update cache
+      setCachedCustomers(updatedCustomers)
+
       toast({
         title: "Customer deleted",
         description: "The customer has been successfully deleted.",
@@ -318,4 +298,3 @@ export default function CustomersPage() {
     </div>
   )
 }
-

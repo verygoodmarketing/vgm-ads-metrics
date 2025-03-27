@@ -5,9 +5,6 @@ export async function GET() {
   try {
     const supabase = createServerSupabaseClient()
 
-    // Add error logging to help diagnose the issue
-    console.log("Fetching customers from Supabase")
-
     const { data, error } = await supabase.from("customers").select("*").order("name")
 
     if (error) {
@@ -40,4 +37,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create customer" }, { status: 500 })
   }
 }
-
