@@ -125,6 +125,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Get the Supabase client
         const supabase = getSupabaseClient()
 
+        // First try to refresh the session
+        try {
+          await supabase.auth.refreshSession();
+        } catch (refreshError) {
+          console.warn("Session refresh failed:", refreshError);
+          // Continue with the existing session if refresh fails
+        }
+
         // Get session
         const { data, error } = await supabase.auth.getSession()
 
@@ -204,8 +212,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       checkAuth()
     }
 
+    // Set up a periodic check to refresh the session
+    const sessionCheckInterval = setInterval(() => {
+      if (isMounted.current && user) {
+        console.log("Performing periodic session check");
+        checkAuth();
+      }
+    }, 15 * 60 * 1000); // Check every 15 minutes
+
     return () => {
       // Cleanup function
+      clearInterval(sessionCheckInterval);
     }
   }, [supabaseAvailable])
 

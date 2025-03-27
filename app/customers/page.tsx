@@ -48,12 +48,34 @@ export default function CustomersPage() {
       setIsError(false)
 
       try {
-        // Add a small delay to ensure authentication is ready
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        // First, ensure the session is valid by refreshing it
+        try {
+          await supabase.auth.refreshSession();
+        } catch (refreshError) {
+          console.warn("Session refresh failed, continuing with current session:", refreshError);
+        }
 
         const { data, error } = await supabase.from("customers").select("*").order("name")
 
-        if (error) throw error
+        if (error) {
+          // If we get an unauthorized error, try to refresh the session again
+          if (error.code === "PGRST301" || error.message?.includes("JWT")) {
+            console.log("Authentication error, attempting to refresh session");
+            await supabase.auth.refreshSession();
+            
+            // Try the query again after refresh
+            const retryResult = await supabase.from("customers").select("*").order("name");
+            
+            if (retryResult.error) {
+              throw retryResult.error;
+            }
+            
+            setCustomers(retryResult.data as Customer[]);
+            return;
+          }
+          
+          throw error;
+        }
 
         setCustomers(data as Customer[])
       } catch (error) {

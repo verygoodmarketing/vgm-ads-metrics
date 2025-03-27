@@ -94,9 +94,44 @@ export const getSupabaseClient = (): SupabaseClient => {
     })
 
     console.log("Created Supabase singleton instance")
+    
+    // Set up session refresh mechanism
+    setupSessionRefresh(supabaseInstance);
   }
 
   return supabaseInstance
+}
+
+// Set up periodic session refresh to prevent token expiration issues
+const setupSessionRefresh = (supabase: SupabaseClient) => {
+  if (typeof window === 'undefined') return;
+  
+  // Refresh session every 10 minutes to prevent expiration
+  const REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+  
+  const refreshSession = async () => {
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (error) {
+        console.warn("Session refresh failed:", error.message);
+      } else if (data.session) {
+        console.log("Session refreshed successfully");
+      }
+    } catch (err) {
+      console.error("Error refreshing session:", err);
+    }
+  };
+  
+  // Set up interval for session refresh
+  const intervalId = setInterval(refreshSession, REFRESH_INTERVAL);
+  
+  // Clean up on page unload
+  window.addEventListener('beforeunload', () => {
+    clearInterval(intervalId);
+  });
+  
+  // Do an initial refresh
+  refreshSession();
 }
 
 // For backward compatibility with existing code
