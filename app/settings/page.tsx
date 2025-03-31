@@ -259,7 +259,7 @@ export default function SettingsPage() {
                     className={`flex flex-col items-center gap-2 cursor-pointer rounded-md transition-all ${theme === "system" ? "ring-2 ring-primary" : "hover:bg-accent"}`}
                     onClick={() => setTheme("system")}
                   >
-                    <div className="border rounded-md p-4 w-full aspect-square flex items-center justify-center bg-gradient-to-b from-background to-black">
+                    <div className="border rounded-md p-4 w-full aspect-square flex items-center justify-center bg-linear-to-b from-background to-black">
                       <Laptop className="h-10 w-10 text-primary" />
                     </div>
                     <span className="text-sm font-medium">System</span>

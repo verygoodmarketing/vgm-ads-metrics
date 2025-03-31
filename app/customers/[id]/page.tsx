@@ -246,7 +246,7 @@ export default function CustomerDetailPage() {
                       color: "hsl(var(--chart-2))",
                     },
                   }}
-                  className="aspect-[4/3]"
+                  className="aspect-4/3"
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={metricsData}>
@@ -283,7 +283,7 @@ export default function CustomerDetailPage() {
                       color: "hsl(var(--chart-5))",
                     },
                   }}
-                  className="aspect-[4/3]"
+                  className="aspect-4/3"
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={metricsData}>
@@ -438,7 +438,7 @@ export default function CustomerDetailPage() {
                       color: "hsl(var(--chart-4))",
                     },
                   }}
-                  className="aspect-[4/3]"
+                  className="aspect-4/3"
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={metricsData}>
@@ -469,7 +469,7 @@ export default function CustomerDetailPage() {
                       color: "hsl(var(--chart-7))",
                     },
                   }}
-                  className="aspect-[4/3]"
+                  className="aspect-4/3"
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={metricsData}>

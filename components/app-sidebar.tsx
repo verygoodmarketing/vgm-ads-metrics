@@ -232,7 +232,7 @@ export function AppSidebar() {
                   <Badge className="ml-2">{user.role}</Badge>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width]">
+              <DropdownMenuContent align="start" className="w-(--radix-dropdown-menu-trigger-width)">
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuItem asChild>
                   <Link href="/settings?tab=profile">
