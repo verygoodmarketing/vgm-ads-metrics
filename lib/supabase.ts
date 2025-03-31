@@ -1,8 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-// Global variable to store the singleton instance
-let supabaseInstance: SupabaseClient | null = null
-
 // Types for our database tables
 export type Customer = {
 	id: string
@@ -48,7 +45,10 @@ export type User = {
 	updated_at: string
 }
 
-// Create a single supabase client for server-side usage
+// Singleton instance for client-side
+let supabaseInstance: SupabaseClient | null = null
+
+// Create a supabase client for server-side usage
 export const createServerSupabaseClient = () => {
 	const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 	const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -83,7 +83,6 @@ export const getSupabaseClient = (): SupabaseClient => {
 			throw new Error('Missing Supabase environment variables')
 		}
 
-		// Create a single instance with consistent options
 		supabaseInstance = createClient(supabaseUrl, supabaseKey, {
 			auth: {
 				persistSession: true,
@@ -92,30 +91,21 @@ export const getSupabaseClient = (): SupabaseClient => {
 				storageKey: 'vgm-supabase-auth',
 			},
 			global: {
-				// Set a reasonable timeout for all requests
 				fetch: (url, options) => {
 					const controller = new AbortController()
-					const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
-
+					const timeoutId = setTimeout(() => controller.abort(), 15000)
 					return fetch(url, {
 						...options,
 						signal: controller.signal,
-					}).finally(() => {
-						clearTimeout(timeoutId)
-					})
+					}).finally(() => clearTimeout(timeoutId))
 				},
 			},
 		})
 
-		// Set up session refresh mechanism
 		setupSessionRefresh(supabaseInstance)
 
-		// Add event listener for auth state changes
-		supabaseInstance.auth.onAuthStateChange((event, session) => {
-			if (event === 'TOKEN_REFRESHED') {
-				// Token refreshed
-			} else if (event === 'SIGNED_OUT') {
-				// Clear any cached data
+		supabaseInstance.auth.onAuthStateChange(event => {
+			if (event === 'SIGNED_OUT') {
 				localStorage.removeItem('user')
 			}
 		})
@@ -124,111 +114,56 @@ export const getSupabaseClient = (): SupabaseClient => {
 	return supabaseInstance
 }
 
-// Set up periodic session refresh to prevent token expiration issues
+// Set up periodic session refresh
 const setupSessionRefresh = (supabase: SupabaseClient) => {
 	if (typeof window === 'undefined') return
 
-	// Refresh session every 4 minutes to prevent expiration
 	const REFRESH_INTERVAL = 4 * 60 * 1000 // 4 minutes
 
 	const refreshSession = async () => {
 		try {
-			// Check if we're using mock user in development
-			if (process.env.NODE_ENV === 'development') {
-				const mockUser = localStorage.getItem('user')
-				if (mockUser && JSON.parse(mockUser).id === 'mock-user-id') {
-					// Skip session refresh for mock user
-					return
-				}
-			}
-
-			// Check if we have an existing session before attempting refresh
-			const { data: sessionData } = await supabase.auth.getSession()
-			if (!sessionData?.session) {
-				// No active session, skip refresh
+			if (
+				process.env.NODE_ENV === 'development' &&
+				localStorage.getItem('user') &&
+				JSON.parse(localStorage.getItem('user') || '{}').id === 'mock-user-id'
+			) {
 				return
 			}
 
-			const { data, error } = await supabase.auth.refreshSession()
-			if (error) {
-				console.warn('Session refresh failed:', error.message)
-			} else if (data.session) {
-				// Only log in development
-				if (process.env.NODE_ENV === 'development') {
-					// Session refreshed
-				}
-			}
+			await supabase.auth.refreshSession()
 		} catch (err) {
-			// Only log in development
 			if (process.env.NODE_ENV === 'development') {
 				console.error('Error refreshing session:', err)
 			}
 		}
 	}
 
-	// Set up interval for session refresh
 	const intervalId = setInterval(refreshSession, REFRESH_INTERVAL)
-
-	// Clean up on page unload
-	window.addEventListener('beforeunload', () => {
-		clearInterval(intervalId)
-	})
-
-	// Do an initial refresh
+	window.addEventListener('beforeunload', () => clearInterval(intervalId))
 	refreshSession()
 }
 
-// For backward compatibility with existing code
+// For backward compatibility
 export const createClientSupabaseClient = getSupabaseClient
 
-// Helper function to check if Supabase is available
+// Check if Supabase is available
 export const isSupabaseAvailable = async (): Promise<boolean> => {
 	try {
-		// First check if we have the required environment variables
 		const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 		const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-		if (!supabaseUrl || !supabaseKey) {
-			console.warn('Missing Supabase environment variables')
-			return false
-		}
+		if (!supabaseUrl || !supabaseKey) return false
 
-		// Try to create a client
-		let supabase
-		try {
-			supabase = getSupabaseClient()
-		} catch (error) {
-			console.error('Failed to create Supabase client:', error)
-			return false
-		}
+		const supabase = getSupabaseClient()
 
-		if (!supabase) return false
+		const controller = new AbortController()
+		const timeoutId = setTimeout(() => controller.abort(), 5000)
 
-		// Make a simple query to check connectivity with a shorter timeout
-		try {
-			// Create an AbortController to timeout the request
-			const controller = new AbortController()
-			const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+		const { error } = await supabase.from('users').select('id').limit(1).abortSignal(controller.signal)
 
-			const { data, error } = await supabase.from('users').select('id').limit(1).abortSignal(controller.signal)
-
-			clearTimeout(timeoutId)
-
-			if (error) {
-				console.error('Supabase query error:', error)
-				return false
-			}
-			return true
-		} catch (error: any) {
-			if (error.name === 'AbortError') {
-				console.error('Supabase query timed out')
-			} else {
-				console.error('Supabase query failed:', error)
-			}
-			return false
-		}
+		clearTimeout(timeoutId)
+		return !error
 	} catch (error) {
-		console.error('Supabase availability check failed:', error)
 		return false
 	}
 }
