@@ -153,7 +153,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 								.select('*')
 								.eq('id', session.user.id)
 								.single()
-								.abortSignal(userController.signal)
 
 							clearTimeout(userTimeoutId)
 
@@ -309,9 +308,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 				const { data, error } = await supabase.auth.signInWithPassword({
 					email,
 					password,
-					options: {
-						abortSignal: controller.signal,
-					},
 				})
 
 				clearTimeout(timeoutId)
@@ -334,7 +330,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 						.select('*')
 						.eq('id', data.user.id)
 						.single()
-						.abortSignal(userController.signal)
 
 					clearTimeout(userTimeoutId)
 
