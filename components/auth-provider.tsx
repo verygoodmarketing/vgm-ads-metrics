@@ -1,546 +1,543 @@
-"use client"
+'use client'
 
-import type React from "react"
-import { createContext, useContext, useState, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
-import { getSupabaseClient, isSupabaseAvailable, type User, type UserRole } from "@/lib/supabase"
-import { useToast } from "@/components/ui/use-toast"
+import type React from 'react'
+import { createContext, useContext, useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import { getSupabaseClient, isSupabaseAvailable, type User, type UserRole } from '@/lib/supabase'
+import { useToast } from '@/components/ui/use-toast'
 
 type AuthContextType = {
-  user: User | null
-  loading: boolean
-  supabaseAvailable: boolean
-  login: (email: string, password: string) => Promise<void>
-  signup: (email: string, password: string, name: string) => Promise<void>
-  logout: () => Promise<void>
-  updateUserProfile: (data: Partial<User>) => Promise<void>
-  hasPermission: (requiredRole: UserRole | UserRole[]) => boolean
+	user: User | null
+	loading: boolean
+	supabaseAvailable: boolean
+	login: (email: string, password: string) => Promise<void>
+	signup: (email: string, password: string, name: string) => Promise<void>
+	logout: () => Promise<void>
+	updateUserProfile: (data: Partial<User>) => Promise<void>
+	hasPermission: (requiredRole: UserRole | UserRole[]) => boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Mock user for development/fallback when Supabase is unavailable
 const MOCK_USER: User = {
-  id: "mock-user-id",
-  email: "admin@example.com",
-  name: "Admin User",
-  role: "admin",
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-  theme_preference: "system",
+	id: 'mock-user-id',
+	email: 'admin@example.com',
+	name: 'Admin User',
+	role: 'admin',
+	created_at: new Date().toISOString(),
+	updated_at: new Date().toISOString(),
+	theme_preference: 'system',
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [supabaseAvailable, setSupabaseAvailable] = useState(true)
-  const router = useRouter()
-  const { toast } = useToast()
-  const isMounted = useRef(false)
-  const authListenerRef = useRef<{ subscription?: { unsubscribe: () => void } }>({})
+	const [user, setUser] = useState<User | null>(null)
+	const [loading, setLoading] = useState(true)
+	const [supabaseAvailable, setSupabaseAvailable] = useState(true)
+	const router = useRouter()
+	const { toast } = useToast()
+	const isMounted = useRef(false)
+	const authListenerRef = useRef<{ subscription?: { unsubscribe: () => void } }>({})
 
-  // Check if Supabase is available
-  useEffect(() => {
-    isMounted.current = true
+	// Check if Supabase is available
+	useEffect(() => {
+		isMounted.current = true
 
-    const checkSupabaseAvailability = async () => {
-      try {
-        // Clear any existing mock user data to ensure a fresh check
-        if (process.env.NODE_ENV === "development") {
-          const storedUser = localStorage.getItem("user");
-          if (storedUser && JSON.parse(storedUser).id === "mock-user-id") {
-            localStorage.removeItem("user");
-          }
-        }
-        
-        // Clear any existing Supabase auth data to ensure a fresh check
-        localStorage.removeItem("sb-rjwjufncbrpxtjudmxwr-auth-token");
-        localStorage.removeItem("vgm-supabase-auth");
-        
-        console.log("Checking Supabase availability...");
-        const available = await isSupabaseAvailable()
-        if (isMounted.current) {
-          console.log("Supabase availability check result:", available)
-          setSupabaseAvailable(available)
-          
-          // No longer using mock user when Supabase is unavailable
-          if (!available) {
-            console.warn("Supabase is not available. Database cannot be reached.")
-            setUser(null)
-          }
-        }
-      } catch (error) {
-        console.error("Error checking Supabase availability:", error)
-        if (isMounted.current) {
-          setSupabaseAvailable(false)
-          setUser(null)
-        }
-      }
-    }
+		const checkSupabaseAvailability = async () => {
+			try {
+				// Clear any existing mock user data to ensure a fresh check
+				if (process.env.NODE_ENV === 'development') {
+					const storedUser = localStorage.getItem('user')
+					if (storedUser && JSON.parse(storedUser).id === 'mock-user-id') {
+						localStorage.removeItem('user')
+					}
+				}
 
-    checkSupabaseAvailability()
+				// Clear any existing Supabase auth data to ensure a fresh check
+				localStorage.removeItem('sb-rjwjufncbrpxtjudmxwr-auth-token')
+				localStorage.removeItem('vgm-supabase-auth')
 
-    return () => {
-      isMounted.current = false
-    }
-  }, [])
+				const available = await isSupabaseAvailable()
+				if (isMounted.current) {
+					setSupabaseAvailable(available)
 
-  // Check for existing session and fetch user data
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout // Declare timeoutId here
+					// No longer using mock user when Supabase is unavailable
+					if (!available) {
+						console.warn('Supabase is not available. Database cannot be reached.')
+						setUser(null)
+					}
+				}
+			} catch (error) {
+				console.error('Error checking Supabase availability:', error)
+				if (isMounted.current) {
+					setSupabaseAvailable(false)
+					setUser(null)
+				}
+			}
+		}
 
-    const checkAuth = async () => {
-      try {
-        setLoading(true)
+		checkSupabaseAvailability()
 
-        // Add a timeout to prevent infinite loading state
-        timeoutId = setTimeout(() => {
-          if (isMounted.current && loading) {
-            console.warn("Auth check timed out, falling back to logged out state")
-            setUser(null)
-            setLoading(false)
-          }
-        }, 15000) // Increased timeout to 15 seconds
+		return () => {
+			isMounted.current = false
+		}
+	}, [])
 
-        // If Supabase is not available, don't use mock data
-        if (!supabaseAvailable) {
-          clearTimeout(timeoutId)
-          // Don't use mock user, just set user to null
-          setUser(null)
-          setLoading(false)
-          return
-        }
+	// Check for existing session and fetch user data
+	useEffect(() => {
+		let timeoutId: NodeJS.Timeout // Declare timeoutId here
 
-        // Get the Supabase client
-        const supabase = getSupabaseClient()
+		const checkAuth = async () => {
+			try {
+				setLoading(true)
 
-        // Check if we're using mock user in development - remove this section
-        const storedUser = localStorage.getItem("user")
-        if (storedUser) {
-          const parsedUser = JSON.parse(storedUser);
-          // Remove mock user check
-          if (parsedUser.id === "mock-user-id") {
-            // Remove mock user from storage
-            localStorage.removeItem("user");
-          }
-        }
+				// Add a timeout to prevent infinite loading state
+				timeoutId = setTimeout(() => {
+					if (isMounted.current && loading) {
+						console.warn('Auth check timed out, falling back to logged out state')
+						setUser(null)
+						setLoading(false)
+					}
+				}, 15000) // Increased timeout to 15 seconds
 
-        // Create an AbortController for the session fetch
-        const controller = new AbortController();
-        const fetchTimeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-        
-        try {
-          // Get session with timeout
-          const { data, error } = await supabase.auth.getSession();
-          clearTimeout(fetchTimeoutId);
-          
-          if (error) {
-            console.error("Error getting session:", error)
-            setUser(null)
-            setLoading(false)
-            clearTimeout(timeoutId)
-            return
-          }
+				// If Supabase is not available, don't use mock data
+				if (!supabaseAvailable) {
+					clearTimeout(timeoutId)
+					// Don't use mock user, just set user to null
+					setUser(null)
+					setLoading(false)
+					return
+				}
 
-          const session = data?.session
+				// Get the Supabase client
+				const supabase = getSupabaseClient()
 
-          if (session) {
-            try {
-              // Fetch user profile from our users table with timeout
-              const userController = new AbortController();
-              const userTimeoutId = setTimeout(() => userController.abort(), 10000);
-              
-              const { data: userData, error: userError } = await supabase
-                .from("users")
-                .select("*")
-                .eq("id", session.user.id)
-                .single()
-                .abortSignal(userController.signal);
-                
-              clearTimeout(userTimeoutId);
+				// Check if we're using mock user in development - remove this section
+				const storedUser = localStorage.getItem('user')
+				if (storedUser) {
+					const parsedUser = JSON.parse(storedUser)
+					// Remove mock user check
+					if (parsedUser.id === 'mock-user-id') {
+						// Remove mock user from storage
+						localStorage.removeItem('user')
+					}
+				}
 
-              if (userError) {
-                console.error("Error fetching user data:", userError)
-                setUser(null)
-              } else if (userData) {
-                setUser(userData as User)
-                localStorage.setItem("user", JSON.stringify(userData))
+				// Create an AbortController for the session fetch
+				const controller = new AbortController()
+				const fetchTimeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
 
-                // If user has a theme preference, apply it
-                if (userData.theme_preference) {
-                  localStorage.setItem("vgm-ui-theme", userData.theme_preference)
-                }
-              } else {
-                console.error("No user data found")
-                setUser(null)
-              }
-            } catch (error: any) {
-              console.error("Error in user data fetch:", error)
-              if (error.name === 'AbortError') {
-                console.error("User data fetch timed out")
-              }
-              setUser(null)
-            }
-          } else {
-            // No session, check localStorage for user data
-            if (storedUser) {
-              const parsedUser = JSON.parse(storedUser);
-              // Remove mock user if found
-              if (parsedUser.id === "mock-user-id") {
-                localStorage.removeItem("user");
-                setUser(null);
-              } else {
-                // Otherwise, clear the stored user as the session is invalid
-                localStorage.removeItem("user");
-                setUser(null);
-              }
-            } else {
-              setUser(null)
-            }
-          }
-        } catch (error: any) {
-          clearTimeout(fetchTimeoutId);
-          console.error("Auth check failed:", error)
-          if (error.name === 'AbortError') {
-            console.error("Session fetch timed out")
-          }
-          setUser(null)
-        }
-      } catch (error) {
-        console.error("Auth check failed:", error)
-        setUser(null)
-      } finally {
-        clearTimeout(timeoutId)
-        if (isMounted.current) {
-          setLoading(false)
-        }
-      }
-    }
+				try {
+					// Get session with timeout
+					const { data, error } = await supabase.auth.getSession()
+					clearTimeout(fetchTimeoutId)
 
-    if (isMounted.current) {
-      checkAuth()
-    }
+					if (error) {
+						console.error('Error getting session:', error)
+						setUser(null)
+						setLoading(false)
+						clearTimeout(timeoutId)
+						return
+					}
 
-    // Set up a periodic check to refresh the session
-    const sessionCheckInterval = setInterval(() => {
-      if (isMounted.current && user) {
-        // Skip periodic checks for mock users
-        if (user.id === "mock-user-id") {
-          return;
-        }
-        
-        if (process.env.NODE_ENV === "development") {
-          console.log("Performing periodic session check");
-        }
-        checkAuth();
-      }
-    }, 15 * 60 * 1000); // Check every 15 minutes
+					const session = data?.session
 
-    return () => {
-      // Cleanup function
-      clearInterval(sessionCheckInterval);
-    }
-  }, [supabaseAvailable])
+					if (session) {
+						try {
+							// Fetch user profile from our users table with timeout
+							const userController = new AbortController()
+							const userTimeoutId = setTimeout(() => userController.abort(), 10000)
 
-  // Set up auth state change listener
-  useEffect(() => {
-    if (!supabaseAvailable || !isMounted.current) {
-      return () => {}
-    }
+							const { data: userData, error: userError } = await supabase
+								.from('users')
+								.select('*')
+								.eq('id', session.user.id)
+								.single()
+								.abortSignal(userController.signal)
 
-    try {
-      const supabase = getSupabaseClient()
+							clearTimeout(userTimeoutId)
 
-      // Clean up any existing listener
-      if (authListenerRef.current.subscription) {
-        authListenerRef.current.subscription.unsubscribe()
-      }
+							if (userError) {
+								console.error('Error fetching user data:', userError)
+								setUser(null)
+							} else if (userData) {
+								setUser(userData as User)
+								localStorage.setItem('user', JSON.stringify(userData))
 
-      // Set up new listener
-      const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (!isMounted.current) return
+								// If user has a theme preference, apply it
+								if (userData.theme_preference) {
+									localStorage.setItem('vgm-ui-theme', userData.theme_preference)
+								}
+							} else {
+								console.error('No user data found')
+								setUser(null)
+							}
+						} catch (error: any) {
+							console.error('Error in user data fetch:', error)
+							if (error.name === 'AbortError') {
+								console.error('User data fetch timed out')
+							}
+							setUser(null)
+						}
+					} else {
+						// No session, check localStorage for user data
+						if (storedUser) {
+							const parsedUser = JSON.parse(storedUser)
+							// Remove mock user if found
+							if (parsedUser.id === 'mock-user-id') {
+								localStorage.removeItem('user')
+								setUser(null)
+							} else {
+								// Otherwise, clear the stored user as the session is invalid
+								localStorage.removeItem('user')
+								setUser(null)
+							}
+						} else {
+							setUser(null)
+						}
+					}
+				} catch (error: any) {
+					clearTimeout(fetchTimeoutId)
+					console.error('Auth check failed:', error)
+					if (error.name === 'AbortError') {
+						console.error('Session fetch timed out')
+					}
+					setUser(null)
+				}
+			} catch (error) {
+				console.error('Auth check failed:', error)
+				setUser(null)
+			} finally {
+				clearTimeout(timeoutId)
+				if (isMounted.current) {
+					setLoading(false)
+				}
+			}
+		}
 
-        if (event === "SIGNED_IN" && session) {
-          // Refresh user data when signed in
-          try {
-            const { data, error } = await supabase.from("users").select("*").eq("id", session.user.id).single()
+		if (isMounted.current) {
+			checkAuth()
+		}
 
-            if (!error && data) {
-              setUser(data as User)
-              localStorage.setItem("user", JSON.stringify(data))
-            }
-          } catch (error) {
-            console.error("Error fetching user data on auth change:", error)
-          }
-        } else if (event === "SIGNED_OUT") {
-          setUser(null)
-          localStorage.removeItem("user")
-        }
-      })
+		// Set up a periodic check to refresh the session
+		const sessionCheckInterval = setInterval(
+			() => {
+				if (isMounted.current && user) {
+					// Skip periodic checks for mock users
+					if (user.id === 'mock-user-id') {
+						return
+					}
 
-      authListenerRef.current = data
-    } catch (error) {
-      console.error("Error setting up auth listener:", error)
-    }
+					checkAuth()
+				}
+			},
+			15 * 60 * 1000
+		) // Check every 15 minutes
 
-    return () => {
-      // Clean up auth listener
-      if (authListenerRef.current.subscription) {
-        authListenerRef.current.subscription.unsubscribe()
-      }
-    }
-  }, [supabaseAvailable])
+		return () => {
+			// Cleanup function
+			clearInterval(sessionCheckInterval)
+		}
+	}, [supabaseAvailable])
 
-  const login = async (email: string, password: string) => {
-    try {
-      setLoading(true)
-      
-      // If Supabase is not available, show error
-      if (!supabaseAvailable) {
-        throw new Error("Authentication service is currently unavailable")
-      }
+	// Set up auth state change listener
+	useEffect(() => {
+		if (!supabaseAvailable || !isMounted.current) {
+			return () => {}
+		}
 
-      const supabase = getSupabaseClient()
+		try {
+			const supabase = getSupabaseClient()
 
-      // Create an AbortController for the login request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+			// Clean up any existing listener
+			if (authListenerRef.current.subscription) {
+				authListenerRef.current.subscription.unsubscribe()
+			}
 
-      try {
-        // Attempt to sign in with timeout
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-          options: {
-            abortSignal: controller.signal
-          }
-        });
-        
-        clearTimeout(timeoutId);
+			// Set up new listener
+			const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+				if (!isMounted.current) return
 
-        if (error) {
-          throw error
-        }
+				if (event === 'SIGNED_IN' && session) {
+					// Refresh user data when signed in
+					try {
+						const { data, error } = await supabase.from('users').select('*').eq('id', session.user.id).single()
 
-        if (!data.session) {
-          throw new Error("No session returned from login")
-        }
+						if (!error && data) {
+							setUser(data as User)
+							localStorage.setItem('user', JSON.stringify(data))
+						}
+					} catch (error) {
+						console.error('Error fetching user data on auth change:', error)
+					}
+				} else if (event === 'SIGNED_OUT') {
+					setUser(null)
+					localStorage.removeItem('user')
+				}
+			})
 
-        try {
-          // Fetch user profile from our users table with timeout
-          const userController = new AbortController();
-          const userTimeoutId = setTimeout(() => userController.abort(), 10000);
-          
-          const { data: userData, error: userError } = await supabase
-            .from("users")
-            .select("*")
-            .eq("id", data.user.id)
-            .single()
-            .abortSignal(userController.signal);
-            
-          clearTimeout(userTimeoutId);
+			authListenerRef.current = data
+		} catch (error) {
+			console.error('Error setting up auth listener:', error)
+		}
 
-          if (userError) {
-            console.error("Error fetching user data:", userError)
-            throw new Error("Failed to fetch user data")
-          }
+		return () => {
+			// Clean up auth listener
+			if (authListenerRef.current.subscription) {
+				authListenerRef.current.subscription.unsubscribe()
+			}
+		}
+	}, [supabaseAvailable])
 
-          if (!userData) {
-            throw new Error("No user data found")
-          }
+	const login = async (email: string, password: string) => {
+		try {
+			setLoading(true)
 
-          // Set user data
-          setUser(userData as User)
-          localStorage.setItem("user", JSON.stringify(userData))
+			// If Supabase is not available, show error
+			if (!supabaseAvailable) {
+				throw new Error('Authentication service is currently unavailable')
+			}
 
-          // If user has a theme preference, apply it
-          if (userData.theme_preference) {
-            localStorage.setItem("vgm-ui-theme", userData.theme_preference)
-          }
-        } catch (error: any) {
-          console.error("Error fetching user data after login:", error)
-          if (error.name === 'AbortError') {
-            throw new Error("User data fetch timed out. Please try again.")
-          }
-          
-          // Fallback to basic user info
-          const basicUser: User = {
-            id: data.user.id,
-            email: data.user.email || "",
-            name: data.user.user_metadata?.name || "User",
-            role: "user", // Default role
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }
-          setUser(basicUser)
-          localStorage.setItem("user", JSON.stringify(basicUser))
-        }
-      } catch (error: any) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-          throw new Error("Login request timed out. Please try again.")
-        }
-        throw error;
-      }
-    } catch (error: any) {
-      console.error("Login failed:", error.message)
-      throw error
-    } finally {
-      setLoading(false)
-    }
-  }
+			const supabase = getSupabaseClient()
 
-  const signup = async (email: string, password: string, name: string) => {
-    try {
-      if (!supabaseAvailable) {
-        throw new Error("Authentication service is currently unavailable")
-      }
+			// Create an AbortController for the login request
+			const controller = new AbortController()
+			const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
 
-      const supabase = getSupabaseClient()
+			try {
+				// Attempt to sign in with timeout
+				const { data, error } = await supabase.auth.signInWithPassword({
+					email,
+					password,
+					options: {
+						abortSignal: controller.signal,
+					},
+				})
 
-      // Create user with Supabase Auth
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-          },
-        },
-      })
+				clearTimeout(timeoutId)
 
-      if (error) {
-        throw error
-      }
+				if (error) {
+					throw error
+				}
 
-      if (!data.user) {
-        throw new Error("Failed to create user account")
-      }
+				if (!data.session) {
+					throw new Error('No session returned from login')
+				}
 
-      // Insert user into our users table
-      const { error: insertError } = await supabase.from("users").insert({
-        id: data.user.id,
-        email,
-        name,
-        role: "user", // Default role for new signups
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+				try {
+					// Fetch user profile from our users table with timeout
+					const userController = new AbortController()
+					const userTimeoutId = setTimeout(() => userController.abort(), 10000)
 
-      if (insertError) {
-        console.error("Error inserting user data:", insertError)
-        // Continue anyway, as the auth user was created
-      }
+					const { data: userData, error: userError } = await supabase
+						.from('users')
+						.select('*')
+						.eq('id', data.user.id)
+						.single()
+						.abortSignal(userController.signal)
 
-      toast({
-        title: "Account created",
-        description: "Your account has been created successfully. You can now log in.",
-      })
+					clearTimeout(userTimeoutId)
 
-      router.push("/login")
-    } catch (error: any) {
-      console.error("Signup failed:", error.message)
-      throw error
-    }
-  }
+					if (userError) {
+						console.error('Error fetching user data:', userError)
+						throw new Error('Failed to fetch user data')
+					}
 
-  const logout = async () => {
-    try {
-      // Clear your app's user data first (this ensures logout works even if Supabase fails)
-      setUser(null)
-      localStorage.removeItem("user")
-      
-      if (supabaseAvailable) {
-        const supabase = getSupabaseClient()
-        
-        try {
-          // Try to refresh the session first to ensure we can logout properly
-          await supabase.auth.refreshSession()
-        } catch (refreshError) {
-          console.warn("Session refresh before logout failed:", refreshError)
-          // Continue with logout anyway
-        }
-        
-        // Clear all Supabase-related storage
-        localStorage.removeItem("vgm-supabase-auth")
-        localStorage.removeItem("sb-rjwjufncbrpxtjudmxwr-auth-token")
-        
-        // Then sign out
-        await supabase.auth.signOut()
-      }
-      
-      router.push("/login")
-    } catch (error) {
-      console.error("Logout failed:", error)
-      // Already cleared user data above, just redirect
-      router.push("/login")
-    }
-  }
+					if (!userData) {
+						throw new Error('No user data found')
+					}
 
-  const updateUserProfile = async (data: Partial<User>) => {
-    try {
-      if (!user) throw new Error("Not authenticated")
+					// Set user data
+					setUser(userData as User)
+					localStorage.setItem('user', JSON.stringify(userData))
 
-      if (!supabaseAvailable) {
-        throw new Error("User profile update is currently unavailable")
-      }
+					// If user has a theme preference, apply it
+					if (userData.theme_preference) {
+						localStorage.setItem('vgm-ui-theme', userData.theme_preference)
+					}
+				} catch (error: any) {
+					console.error('Error fetching user data after login:', error)
+					if (error.name === 'AbortError') {
+						throw new Error('User data fetch timed out. Please try again.')
+					}
 
-      const supabase = getSupabaseClient()
-      const { error } = await supabase.from("users").update(data).eq("id", user.id)
+					// Fallback to basic user info
+					const basicUser: User = {
+						id: data.user.id,
+						email: data.user.email || '',
+						name: data.user.user_metadata?.name || 'User',
+						role: 'user', // Default role
+						created_at: new Date().toISOString(),
+						updated_at: new Date().toISOString(),
+					}
+					setUser(basicUser)
+					localStorage.setItem('user', JSON.stringify(basicUser))
+				}
+			} catch (error: any) {
+				clearTimeout(timeoutId)
+				if (error.name === 'AbortError') {
+					throw new Error('Login request timed out. Please try again.')
+				}
+				throw error
+			}
+		} catch (error: any) {
+			console.error('Login failed:', error.message)
+			throw error
+		} finally {
+			setLoading(false)
+		}
+	}
 
-      if (error) throw error
+	const signup = async (email: string, password: string, name: string) => {
+		try {
+			if (!supabaseAvailable) {
+				throw new Error('Authentication service is currently unavailable')
+			}
 
-      // Update local user state
-      const updatedUser = { ...user, ...data }
-      setUser(updatedUser)
-      localStorage.setItem("user", JSON.stringify(updatedUser))
+			const supabase = getSupabaseClient()
 
-      toast({
-        title: "Profile updated",
-        description: "Your profile has been updated successfully.",
-      })
-    } catch (error: any) {
-      console.error("Profile update failed:", error.message)
-      throw error
-    }
-  }
+			// Create user with Supabase Auth
+			const { data, error } = await supabase.auth.signUp({
+				email,
+				password,
+				options: {
+					data: {
+						name,
+					},
+				},
+			})
 
-  // Helper function to check if user has required role
-  const hasPermission = (requiredRole: UserRole | UserRole[]) => {
-    if (!user) return false
+			if (error) {
+				throw error
+			}
 
-    if (user.role === "admin") return true // Admin has access to everything
+			if (!data.user) {
+				throw new Error('Failed to create user account')
+			}
 
-    if (Array.isArray(requiredRole)) {
-      return requiredRole.includes(user.role)
-    }
+			// Insert user into our users table
+			const { error: insertError } = await supabase.from('users').insert({
+				id: data.user.id,
+				email,
+				name,
+				role: 'user', // Default role for new signups
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+			})
 
-    return user.role === requiredRole
-  }
+			if (insertError) {
+				console.error('Error inserting user data:', insertError)
+				// Continue anyway, as the auth user was created
+			}
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        supabaseAvailable,
-        login,
-        signup,
-        logout,
-        updateUserProfile,
-        hasPermission,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  )
+			toast({
+				title: 'Account created',
+				description: 'Your account has been created successfully. You can now log in.',
+			})
+
+			router.push('/login')
+		} catch (error: any) {
+			console.error('Signup failed:', error.message)
+			throw error
+		}
+	}
+
+	const logout = async () => {
+		try {
+			// Clear your app's user data first (this ensures logout works even if Supabase fails)
+			setUser(null)
+			localStorage.removeItem('user')
+
+			if (supabaseAvailable) {
+				const supabase = getSupabaseClient()
+
+				try {
+					// Try to refresh the session first to ensure we can logout properly
+					await supabase.auth.refreshSession()
+				} catch (refreshError) {
+					console.warn('Session refresh before logout failed:', refreshError)
+					// Continue with logout anyway
+				}
+
+				// Clear all Supabase-related storage
+				localStorage.removeItem('vgm-supabase-auth')
+				localStorage.removeItem('sb-rjwjufncbrpxtjudmxwr-auth-token')
+
+				// Then sign out
+				await supabase.auth.signOut()
+			}
+
+			router.push('/login')
+		} catch (error) {
+			console.error('Logout failed:', error)
+			// Already cleared user data above, just redirect
+			router.push('/login')
+		}
+	}
+
+	const updateUserProfile = async (data: Partial<User>) => {
+		try {
+			if (!user) throw new Error('Not authenticated')
+
+			if (!supabaseAvailable) {
+				throw new Error('User profile update is currently unavailable')
+			}
+
+			const supabase = getSupabaseClient()
+			const { error } = await supabase.from('users').update(data).eq('id', user.id)
+
+			if (error) throw error
+
+			// Update local user state
+			const updatedUser = { ...user, ...data }
+			setUser(updatedUser)
+			localStorage.setItem('user', JSON.stringify(updatedUser))
+
+			toast({
+				title: 'Profile updated',
+				description: 'Your profile has been updated successfully.',
+			})
+		} catch (error: any) {
+			console.error('Profile update failed:', error.message)
+			throw error
+		}
+	}
+
+	// Helper function to check if user has required role
+	const hasPermission = (requiredRole: UserRole | UserRole[]) => {
+		if (!user) return false
+
+		if (user.role === 'admin') return true // Admin has access to everything
+
+		if (Array.isArray(requiredRole)) {
+			return requiredRole.includes(user.role)
+		}
+
+		return user.role === requiredRole
+	}
+
+	return (
+		<AuthContext.Provider
+			value={{
+				user,
+				loading,
+				supabaseAvailable,
+				login,
+				signup,
+				logout,
+				updateUserProfile,
+				hasPermission,
+			}}
+		>
+			{children}
+		</AuthContext.Provider>
+	)
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
-  return context
+	const context = useContext(AuthContext)
+	if (context === undefined) {
+		throw new Error('useAuth must be used within an AuthProvider')
+	}
+	return context
 }
-
